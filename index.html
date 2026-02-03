@@ -3,44 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
-    <title>무지개 벽돌깨기</title>
-
+    <title>Rainbow Breaker Sound Edition</title>
     <link rel="manifest" href="data:application/manifest+json,{'name':'RainbowBreaker','short_name':'Breaker','start_url':'.','display':'standalone','background_color':'#222222','theme_color':'#222222','orientation':'portrait'}">
-
     <style>
-        body { 
-            margin: 0; 
-            background: #222; 
-            overflow: hidden; 
-            touch-action: none; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-        }
-        canvas { 
-            display: block; 
-            margin: 0 auto; 
-            background: #000; 
-        }
-        #ui { 
-            position: absolute; 
-            top: env(safe-area-inset-top, 20px); 
-            left: 20px; 
-            color: white; 
-            pointer-events: none; 
-            z-index: 10; 
-            text-shadow: 1px 1px 2px black;
-        }
-        .info-text { font-size: 18px; font-weight: bold; margin-bottom: 5px; }
+        body { margin: 0; background: #222; overflow: hidden; touch-action: none; font-family: sans-serif; }
+        canvas { display: block; margin: 0 auto; background: #000; }
+        #ui { position: absolute; top: 20px; left: 20px; color: white; pointer-events: none; z-index: 10; font-weight: bold; }
     </style>
 </head>
 <body>
     <div id="ui">
-        <div class="info-text">Level: <span id="level">1</span></div>
-        <div class="info-text">Life: <span id="lives">3</span></div>
-        <div class="info-text">Bricks: <span id="count">0</span> / 70</div>
+        Level: <span id="level">1</span> | Life: <span id="lives">3</span><br>
+        Bricks: <span id="count">0</span> / 70
     </div>
     <canvas id="gameCanvas"></canvas>
 
@@ -51,13 +27,11 @@
         const livesDisplay = document.getElementById("lives");
         const countDisplay = document.getElementById("count");
 
-        // 게임 상태 관리
         let level = 1;
         let lives = 3;
         let bricksBroken = 0;
         let gameState = "READY"; 
 
-        // 화면 크기 최적화
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
 
@@ -65,36 +39,52 @@
         const columnCount = 10;
         const brickPadding = 2;
         const brickWidth = (canvas.width / columnCount) - brickPadding;
-        const brickHeight = 25; // 두께를 약간 키움
+        const brickHeight = 25;
         const rainbowColors = ["#FF0000", "#FF7F00", "#FFFF00", "#00FF00", "#0000FF", "#4B0082", "#9400D3"];
+        // 도레미파솔라시 주파수 (시-라-솔-파-미-레-도 순서로 매칭하기 위해 역순 배치 가능)
+        const scaleFrequencies = [987.77, 880.00, 783.99, 698.46, 659.25, 587.33, 523.25]; // 시(B5) ~ 도(C5)
 
-        // 컨트롤 판 설정 (벽돌 두께의 3배 위로 배치)
         const paddleOffsetBottom = brickHeight * 3 + 60; 
-        let paddleWidth = brickWidth;
+        let paddleWidth = brickWidth; // 초기 크기 = 벽돌 크기
         const paddleHeight = 18;
         let paddleX = (canvas.width - paddleWidth) / 2;
         let paddleY = canvas.height - paddleOffsetBottom;
 
-        // 공 설정
         let ballRadius = 9;
         let x, y, dx, dy, currentSpeed;
         let bricks = [];
 
+        // 사운드 시스템 (Web Audio API)
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playBell(row) {
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+
+            oscillator.type = 'triangle'; // 맑은 벨소리 느낌
+            oscillator.frequency.setValueAtTime(scaleFrequencies[row], audioCtx.currentTime);
+
+            gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.5);
+        }
+
         function initLevel() {
-            // 레벨별 판 크기 축소 (최소 10% 제한)
+            // 판 크기 설정: 레벨 1은 벽돌 크기, 이후 20%씩 감소 (최소 10% 제한)
             let calculatedWidth = brickWidth * Math.pow(0.8, level - 1);
             paddleWidth = Math.max(calculatedWidth, brickWidth * 0.1);
             
             bricksBroken = 0;
-            // 초기 스피드 느리게 설정 (50% 감속 반영)
             currentSpeed = (3 + level) * 0.6; 
             
-            // 벽돌 생성 로직
             bricks = [];
             for (let r = 0; r < rowCount; r++) {
                 bricks[r] = [];
                 for (let c = 0; c < columnCount; c++) {
-                    // Level 6부터 최상단 레이어 내구도 2
                     let strength = (level >= 6 && r === 0) ? 2 : 1;
                     bricks[r][c] = { x: 0, y: 0, status: strength, color: rainbowColors[r] };
                 }
@@ -111,27 +101,20 @@
             gameState = "READY";
         }
 
-        // 입력 제어
         function handleMove(inputX) {
             paddleX = inputX - paddleWidth / 2;
             if(paddleX < 0) paddleX = 0;
             if(paddleX + paddleWidth > canvas.width) paddleX = canvas.width - paddleWidth;
-            
-            if (gameState === "READY") {
-                x = paddleX + paddleWidth / 2;
-            }
+            if (gameState === "READY") x = paddleX + paddleWidth / 2;
         }
 
-        canvas.addEventListener("touchmove", (e) => { 
-            e.preventDefault(); 
-            handleMove(e.touches[0].clientX); 
-        }, {passive: false});
-        
-        canvas.addEventListener("mousemove", (e) => { 
-            handleMove(e.clientX); 
-        });
+        canvas.addEventListener("touchmove", (e) => { e.preventDefault(); handleMove(e.touches[0].clientX); }, {passive: false});
+        canvas.addEventListener("mousemove", (e) => { handleMove(e.clientX); });
 
-        const startAction = () => { if (gameState === "READY") gameState = "PLAYING"; };
+        const startAction = () => { 
+            if (audioCtx.state === 'suspended') audioCtx.resume(); // 브라우저 정책 대응
+            if (gameState === "READY") gameState = "PLAYING"; 
+        };
         canvas.addEventListener("touchstart", startAction);
         canvas.addEventListener("mousedown", startAction);
 
@@ -141,14 +124,13 @@
                     let b = bricks[r][c];
                     if (b.status > 0) {
                         if (x > b.x && x < b.x + brickWidth && y > b.y && y < b.y + brickHeight) {
-                            dy = -dy; // 물리 반사
+                            dy = -dy;
                             b.status--;
+                            playBell(r); // 벽돌의 행(row)에 따라 다른 음계 재생
                             if (b.status === 0) {
                                 bricksBroken++;
-                                // 특정 개수 파괴 시 속도 증가
                                 if ([20, 40, 60].includes(bricksBroken)) {
-                                    dx *= 1.25;
-                                    dy *= 1.25;
+                                    dx *= 1.25; dy *= 1.25;
                                 }
                             }
                             if (bricksBroken === rowCount * columnCount) {
@@ -164,7 +146,6 @@
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             
-            // 벽돌 그리기
             for (let r = 0; r < rowCount; r++) {
                 for (let c = 0; c < columnCount; c++) {
                     if (bricks[r][c].status > 0) {
@@ -172,12 +153,10 @@
                         let bY = r * (brickHeight + brickPadding) + 80;
                         bricks[r][c].x = bX;
                         bricks[r][c].y = bY;
-                        
                         ctx.beginPath();
                         ctx.roundRect(bX, bY, brickWidth, brickHeight, 4);
                         ctx.fillStyle = bricks[r][c].color;
                         ctx.fill();
-                        
                         if (bricks[r][c].status === 2) {
                             ctx.strokeStyle = "white";
                             ctx.lineWidth = 3;
@@ -188,17 +167,12 @@
                 }
             }
 
-            // 공 그리기
             ctx.beginPath();
             ctx.arc(x, y, ballRadius, 0, Math.PI * 2);
             ctx.fillStyle = "white";
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = "white";
             ctx.fill();
-            ctx.shadowBlur = 0; // 그림자 초기화
             ctx.closePath();
 
-            // 판(Paddle) 그리기
             ctx.beginPath();
             ctx.roundRect(paddleX, paddleY, paddleWidth, paddleHeight, 8);
             ctx.fillStyle = "#00FF00";
@@ -208,35 +182,23 @@
             if (gameState === "PLAYING") {
                 if (x + dx > canvas.width - ballRadius || x + dx < ballRadius) dx = -dx;
                 if (y + dy < ballRadius) dy = -dy;
-                
-                // 판 충돌 물리 법칙
                 if (y + dy > paddleY - ballRadius && y + dy < paddleY + paddleHeight) {
                     if (x > paddleX && x < paddleX + paddleWidth) {
-                        let collidePoint = x - (paddleX + paddleWidth / 2);
-                        collidePoint = collidePoint / (paddleWidth / 2); 
-                        let angle = collidePoint * (Math.PI / 3); 
-                        
+                        let collidePoint = (x - (paddleX + paddleWidth / 2)) / (paddleWidth / 2);
+                        let angle = collidePoint * (Math.PI / 3);
                         let speed = Math.sqrt(dx * dx + dy * dy);
                         dx = speed * Math.sin(angle);
                         dy = -speed * Math.cos(angle);
                     }
                 }
-
-                // 바닥 추락 (벽돌 상태 유지)
                 if (y + dy > canvas.height) {
                     lives--;
                     if (lives <= 0) {
-                        alert("GAME OVER! Level: " + level);
-                        level = 1; 
-                        lives = 3; 
-                        initLevel();
-                    } else {
-                        resetBall(); 
-                    }
+                        alert("GAME OVER!");
+                        level = 1; lives = 3; initLevel();
+                    } else { resetBall(); }
                 }
-
-                x += dx;
-                y += dy;
+                x += dx; y += dy;
                 collisionDetection();
             }
             updateUI();
@@ -249,7 +211,6 @@
             countDisplay.innerText = bricksBroken;
         }
 
-        // 초기 시작
         initLevel();
         draw();
     </script>
