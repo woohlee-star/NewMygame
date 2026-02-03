@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>무지개 벽돌깨기</title>
+
+    <link rel="manifest" href="data:application/manifest+json,{'name':'RainbowBreaker','short_name':'Breaker','start_url':'.','display':'standalone','background_color':'#222222','theme_color':'#222222','orientation':'portrait'}">
+
+    <style>
+        body { 
+            margin: 0; 
+            background: #222; 
+            overflow: hidden; 
+            touch-action: none; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+        }
+        canvas { 
+            display: block; 
+            margin: 0 auto; 
+            background: #000; 
+        }
+        #ui { 
+            position: absolute; 
+            top: env(safe-area-inset-top, 20px); 
+            left: 20px; 
+            color: white; 
+            pointer-events: none; 
+            z-index: 10; 
+            text-shadow: 1px 1px 2px black;
+        }
+        .info-text { font-size: 18px; font-weight: bold; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div class="info-text">Level: <span id="level">1</span></div>
+        <div class="info-text">Life: <span id="lives">3</span></div>
+        <div class="info-text">Bricks: <span id="count">0</span> / 70</div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const levelDisplay = document.getElementById("level");
+        const livesDisplay = document.getElementById("lives");
+        const countDisplay = document.getElementById("count");
+
+        // 게임 상태 관리
+        let level = 1;
+        let lives = 3;
+        let bricksBroken = 0;
+        let gameState = "READY"; 
+
+        // 화면 크기 최적화
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const rowCount = 7;
+        const columnCount = 10;
+        const brickPadding = 2;
+        const brickWidth = (canvas.width / columnCount) - brickPadding;
+        const brickHeight = 25; // 두께를 약간 키움
+        const rainbowColors = ["#FF0000", "#FF7F00", "#FFFF00", "#00FF00", "#0000FF", "#4B0082", "#9400D3"];
+
+        // 컨트롤 판 설정 (벽돌 두께의 3배 위로 배치)
+        const paddleOffsetBottom = brickHeight * 3 + 60; 
+        let paddleWidth = brickWidth;
+        const paddleHeight = 18;
+        let paddleX = (canvas.width - paddleWidth) / 2;
+        let paddleY = canvas.height - paddleOffsetBottom;
+
+        // 공 설정
+        let ballRadius = 9;
+        let x, y, dx, dy, currentSpeed;
+        let bricks = [];
+
+        function initLevel() {
+            // 레벨별 판 크기 축소 (최소 10% 제한)
+            let calculatedWidth = brickWidth * Math.pow(0.8, level - 1);
+            paddleWidth = Math.max(calculatedWidth, brickWidth * 0.1);
+            
+            bricksBroken = 0;
+            // 초기 스피드 느리게 설정 (50% 감속 반영)
+            currentSpeed = (3 + level) * 0.6; 
+            
+            // 벽돌 생성 로직
+            bricks = [];
+            for (let r = 0; r < rowCount; r++) {
+                bricks[r] = [];
+                for (let c = 0; c < columnCount; c++) {
+                    // Level 6부터 최상단 레이어 내구도 2
+                    let strength = (level >= 6 && r === 0) ? 2 : 1;
+                    bricks[r][c] = { x: 0, y: 0, status: strength, color: rainbowColors[r] };
+                }
+            }
+            resetBall();
+            updateUI();
+        }
+
+        function resetBall() {
+            x = paddleX + paddleWidth / 2;
+            y = paddleY - ballRadius - 5;
+            dx = currentSpeed * (Math.random() > 0.5 ? 1 : -1);
+            dy = -currentSpeed;
+            gameState = "READY";
+        }
+
+        // 입력 제어
+        function handleMove(inputX) {
+            paddleX = inputX - paddleWidth / 2;
+            if(paddleX < 0) paddleX = 0;
+            if(paddleX + paddleWidth > canvas.width) paddleX = canvas.width - paddleWidth;
+            
+            if (gameState === "READY") {
+                x = paddleX + paddleWidth / 2;
+            }
+        }
+
+        canvas.addEventListener("touchmove", (e) => { 
+            e.preventDefault(); 
+            handleMove(e.touches[0].clientX); 
+        }, {passive: false});
+        
+        canvas.addEventListener("mousemove", (e) => { 
+            handleMove(e.clientX); 
+        });
+
+        const startAction = () => { if (gameState === "READY") gameState = "PLAYING"; };
+        canvas.addEventListener("touchstart", startAction);
+        canvas.addEventListener("mousedown", startAction);
+
+        function collisionDetection() {
+            for (let r = 0; r < rowCount; r++) {
+                for (let c = 0; c < columnCount; c++) {
+                    let b = bricks[r][c];
+                    if (b.status > 0) {
+                        if (x > b.x && x < b.x + brickWidth && y > b.y && y < b.y + brickHeight) {
+                            dy = -dy; // 물리 반사
+                            b.status--;
+                            if (b.status === 0) {
+                                bricksBroken++;
+                                // 특정 개수 파괴 시 속도 증가
+                                if ([20, 40, 60].includes(bricksBroken)) {
+                                    dx *= 1.25;
+                                    dy *= 1.25;
+                                }
+                            }
+                            if (bricksBroken === rowCount * columnCount) {
+                                level++;
+                                initLevel();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 벽돌 그리기
+            for (let r = 0; r < rowCount; r++) {
+                for (let c = 0; c < columnCount; c++) {
+                    if (bricks[r][c].status > 0) {
+                        let bX = c * (brickWidth + brickPadding);
+                        let bY = r * (brickHeight + brickPadding) + 80;
+                        bricks[r][c].x = bX;
+                        bricks[r][c].y = bY;
+                        
+                        ctx.beginPath();
+                        ctx.roundRect(bX, bY, brickWidth, brickHeight, 4);
+                        ctx.fillStyle = bricks[r][c].color;
+                        ctx.fill();
+                        
+                        if (bricks[r][c].status === 2) {
+                            ctx.strokeStyle = "white";
+                            ctx.lineWidth = 3;
+                            ctx.stroke();
+                        }
+                        ctx.closePath();
+                    }
+                }
+            }
+
+            // 공 그리기
+            ctx.beginPath();
+            ctx.arc(x, y, ballRadius, 0, Math.PI * 2);
+            ctx.fillStyle = "white";
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = "white";
+            ctx.fill();
+            ctx.shadowBlur = 0; // 그림자 초기화
+            ctx.closePath();
+
+            // 판(Paddle) 그리기
+            ctx.beginPath();
+            ctx.roundRect(paddleX, paddleY, paddleWidth, paddleHeight, 8);
+            ctx.fillStyle = "#00FF00";
+            ctx.fill();
+            ctx.closePath();
+
+            if (gameState === "PLAYING") {
+                if (x + dx > canvas.width - ballRadius || x + dx < ballRadius) dx = -dx;
+                if (y + dy < ballRadius) dy = -dy;
+                
+                // 판 충돌 물리 법칙
+                if (y + dy > paddleY - ballRadius && y + dy < paddleY + paddleHeight) {
+                    if (x > paddleX && x < paddleX + paddleWidth) {
+                        let collidePoint = x - (paddleX + paddleWidth / 2);
+                        collidePoint = collidePoint / (paddleWidth / 2); 
+                        let angle = collidePoint * (Math.PI / 3); 
+                        
+                        let speed = Math.sqrt(dx * dx + dy * dy);
+                        dx = speed * Math.sin(angle);
+                        dy = -speed * Math.cos(angle);
+                    }
+                }
+
+                // 바닥 추락 (벽돌 상태 유지)
+                if (y + dy > canvas.height) {
+                    lives--;
+                    if (lives <= 0) {
+                        alert("GAME OVER! Level: " + level);
+                        level = 1; 
+                        lives = 3; 
+                        initLevel();
+                    } else {
+                        resetBall(); 
+                    }
+                }
+
+                x += dx;
+                y += dy;
+                collisionDetection();
+            }
+            updateUI();
+            requestAnimationFrame(draw);
+        }
+
+        function updateUI() {
+            levelDisplay.innerText = level;
+            livesDisplay.innerText = lives;
+            countDisplay.innerText = bricksBroken;
+        }
+
+        // 초기 시작
+        initLevel();
+        draw();
+    </script>
+</body>
+</html>
