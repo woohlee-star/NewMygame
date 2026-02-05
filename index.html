@@ -5,49 +5,61 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
-    <title>Rainbow Breaker - Pro Ranking</title>
+    <title>Rainbow Breaker - Ranking Master</title>
     <link rel="manifest" href="data:application/manifest+json,{'name':'RainbowBreaker','short_name':'Breaker','start_url':'.','display':'standalone','background_color':'#222222','theme_color':'#222222','orientation':'portrait'}">
     <style>
-        body { margin: 0; background: #222; overflow: hidden; touch-action: none; font-family: 'Arial', sans-serif; }
+        body { margin: 0; background: #222; overflow: hidden; touch-action: none; font-family: 'Malgun Gothic', sans-serif; }
         canvas { display: block; margin: 0 auto; background: #000; }
         
-        /* 상단 점수 UI */
-        #ui { position: absolute; top: 20px; left: 20px; color: white; pointer-events: none; z-index: 10; font-weight: bold; }
+        /* 상단 UI */
+        #top-ui { position: absolute; top: env(safe-area-inset-top, 10px); left: 10px; right: 10px; display: flex; justify-content: space-between; align-items: flex-start; z-index: 10; pointer-events: none; }
+        #game-info { color: white; font-weight: bold; font-size: 14px; line-height: 1.4; }
+        
+        /* 사운드 버튼 */
+        #sound-btn { 
+            pointer-events: auto; background: rgba(255,255,255,0.2); border: 1px solid white; 
+            color: white; padding: 5px 10px; border-radius: 5px; font-size: 12px; cursor: pointer;
+        }
 
-        /* 랭킹 레이어 (팝업) */
+        /* 랭킹 레이어 */
         #ranking-layer {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85); z-index: 100; flex-direction: column; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.9); z-index: 100; flex-direction: column; align-items: center; justify-content: center;
         }
         .ranking-container {
-            background: #333; border: 3px solid #00FF00; padding: 25px; border-radius: 20px;
-            width: 85%; max-width: 350px; text-align: center; color: white;
+            background: #2c2c2c; border: 2px solid #00FF00; padding: 20px; border-radius: 15px;
+            width: 85%; max-width: 320px; text-align: center; color: white;
         }
-        .rank-row { display: flex; justify-content: space-between; margin: 10px 0; padding: 10px; background: #444; border-radius: 8px; font-size: 18px; }
-        .rank-row.new { background: #555; border: 2px solid #FFFF00; }
-        .rank-name-input { width: 100px; background: #000; color: #FFFF00; border: 1px solid #FFFF00; text-align: center; text-transform: uppercase; font-weight: bold; }
+        .rank-item { display: flex; justify-content: space-between; margin: 8px 0; padding: 8px 12px; background: #3d3d3d; border-radius: 6px; }
+        .rank-item.top3 { border-left: 4px solid #FFD700; }
+        .rank-item.current { background: #4a4a00; border: 2px solid #FFFF00; animation: blink 1s infinite; }
+        @keyframes blink { 50% { border-color: transparent; } }
         
-        /* 버튼 디자인 */
+        .name-input { width: 90px; background: #000; color: #FFFF00; border: 1px solid #FFFF00; text-align: center; text-transform: uppercase; font-weight: bold; }
+        
         .btn-group { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
-        .game-btn { padding: 12px 20px; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; }
-        .save-btn { background: #00FF00; color: #000; }
-        .retry-btn { background: #FF4444; color: white; }
+        .menu-btn { padding: 10px 20px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; }
+        #save-btn { background: #00FF00; color: #000; }
+        #restart-btn { background: #555; color: white; }
     </style>
 </head>
 <body>
-    <div id="ui">
-        LEVEL: <span id="level">1</span> | LIVES: <span id="lives">3</span><br>
-        SCORE: <span id="score">0</span>
+    <div id="top-ui">
+        <button id="sound-btn" onclick="toggleSound()">SOUND: ON</button>
+        <div id="game-info">
+            LEVEL: <span id="level">1</span><br>
+            LIFE: <span id="lives">3</span><br>
+            SCORE: <span id="score">0</span>
+        </div>
     </div>
 
     <div id="ranking-layer">
         <div class="ranking-container">
-            <h2 id="rank-title" style="color:#00FF00; margin-top:0;">TOP 5 RANKING</h2>
-            <div id="rank-list-items">
-                </div>
+            <h2 style="color:#00FF00; margin-bottom:15px;">TOP 5 RANKING</h2>
+            <div id="rank-display-list"></div>
             <div class="btn-group">
-                <button id="save-btn" class="game-btn save-btn">SAVE RANKING</button>
-                <button onclick="restartGame()" class="game-btn retry-btn">PLAY AGAIN</button>
+                <button id="save-btn" class="menu-btn">SAVE</button>
+                <button id="restart-btn" class="menu-btn" onclick="restartGame()">RESTART</button>
             </div>
         </div>
     </div>
@@ -61,31 +73,41 @@
         const livesDisplay = document.getElementById("lives");
         const scoreDisplay = document.getElementById("score");
         const rankingLayer = document.getElementById("ranking-layer");
-        const rankListItems = document.getElementById("rank-list-items");
+        const rankDisplayList = document.getElementById("rank-display-list");
         const saveBtn = document.getElementById("save-btn");
+        const soundBtn = document.getElementById("sound-btn");
 
-        let level = 1; let lives = 3; let totalScore = 0; let bricksBroken = 0;
-        let gameState = "READY"; 
+        let level = 1, lives = 3, totalScore = 0, bricksBroken = 0, gameState = "READY";
+        let isSoundOn = true;
 
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
 
-        const rowCount = 7; const columnCount = 10;
-        const brickPadding = 2; const brickWidth = (canvas.width / columnCount) - brickPadding;
+        const rowCount = 7, columnCount = 10, brickPadding = 2;
+        const brickWidth = (canvas.width / columnCount) - brickPadding;
         const brickHeight = 25;
         const rainbowColors = ["#FF0000", "#FF7F00", "#FFFF00", "#00FF00", "#0000FF", "#4B0082", "#9400D3"];
         const rowScores = [70, 60, 50, 40, 30, 20, 10];
-        const scaleFrequencies = [987.77, 880.00, 783.99, 698.46, 659.25, 587.33, 523.25];
+        const frequencies = [987.77, 880.00, 783.99, 698.46, 659.25, 587.33, 523.25];
 
-        const paddleOffsetBottom = brickHeight * 3 + 60; 
-        let paddleWidth; const paddleHeight = 18; let paddleX; let paddleY = canvas.height - paddleOffsetBottom;
-        let ballRadius = 9; let x, y, dx, dy, currentSpeed; let bricks = [];
+        const paddleY = canvas.height - (brickHeight * 3 + 60);
+        let paddleWidth, paddleX, ballRadius = 9, x, y, dx, dy, currentSpeed, bricks = [];
 
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        function toggleSound() {
+            isSoundOn = !isSoundOn;
+            soundBtn.innerText = `SOUND: ${isSoundOn ? 'ON' : 'OFF'}`;
+            if (isSoundOn && audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
         function playBell(row) {
+            if (!isSoundOn) return;
             if (audioCtx.state === 'suspended') audioCtx.resume();
-            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
-            osc.type = 'triangle'; osc.frequency.setValueAtTime(scaleFrequencies[row], audioCtx.currentTime);
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(frequencies[row], audioCtx.currentTime);
             gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
             osc.connect(gain); gain.connect(audioCtx.destination);
@@ -96,7 +118,8 @@
             paddleWidth = (brickWidth * 2) * Math.pow(0.8, level - 1);
             paddleWidth = Math.max(paddleWidth, brickWidth * 0.1);
             paddleX = (canvas.width - paddleWidth) / 2;
-            bricksBroken = 0; currentSpeed = (3 + level) * 0.6;
+            bricksBroken = 0;
+            currentSpeed = (3 + level) * 0.6;
             bricks = [];
             for (let r = 0; r < rowCount; r++) {
                 bricks[r] = [];
@@ -113,69 +136,73 @@
             gameState = "READY";
         }
 
-        function handleMove(inputX) {
-            if (gameState === "RANKING") return;
-            paddleX = inputX - paddleWidth / 2;
-            if(paddleX < 0) paddleX = 0; if(paddleX + paddleWidth > canvas.width) paddleX = canvas.width - paddleWidth;
-            if (gameState === "READY") x = paddleX + paddleWidth / 2;
-        }
-
         canvas.addEventListener("touchmove", (e) => { e.preventDefault(); handleMove(e.touches[0].clientX); }, {passive: false});
         canvas.addEventListener("mousemove", (e) => { handleMove(e.clientX); });
         canvas.addEventListener("mousedown", () => { if (gameState === "READY") gameState = "PLAYING"; });
         canvas.addEventListener("touchstart", () => { if (gameState === "READY") gameState = "PLAYING"; });
 
-        function checkRanking() {
-            let highScores = JSON.parse(localStorage.getItem("breaker_rankings") || "[]");
-            const newRankIndex = highScores.findIndex(s => totalScore > s.score);
-            const isTop5 = highScores.length < 5 || newRankIndex !== -1;
+        function handleMove(inputX) {
+            if (gameState === "RANKING") return;
+            paddleX = inputX - paddleWidth / 2;
+            paddleX = Math.max(0, Math.min(canvas.width - paddleWidth, paddleX));
+            if (gameState === "READY") x = paddleX + paddleWidth / 2;
+        }
 
-            if (isTop5) {
+        function checkRanking() {
+            let scores = JSON.parse(localStorage.getItem("breaker_rankings") || "[]");
+            // 내 점수가 들어갈 위치 계산
+            let temp = [...scores, { name: "YOU", score: totalScore, isCurrent: true }];
+            temp.sort((a, b) => b.score - a.score);
+            let myRank = temp.findIndex(s => s.isCurrent) + 1;
+
+            if (myRank <= 5) {
                 gameState = "RANKING";
-                showRankingInput(highScores);
+                renderRankingList(scores, myRank);
+                rankingLayer.style.display = "flex";
             } else {
                 restartGame();
             }
         }
 
-        function showRankingInput(scores) {
-            rankingLayer.style.display = "flex";
-            rankListItems.innerHTML = "";
-            
-            // 임시로 내 점수를 포함한 새로운 리스트 생성
-            let tempScores = [...scores, { name: "ENTER...", score: totalScore, isNew: true }];
-            tempScores.sort((a, b) => b.score - a.score);
-            tempScores = tempScores.slice(0, 5);
+        function renderRankingList(oldScores, myRank) {
+            rankDisplayList.innerHTML = "";
+            let displayList = [...oldScores, { name: "INPUT", score: totalScore, isCurrent: true }];
+            displayList.sort((a, b) => b.score - a.score);
+            displayList = displayList.slice(0, 5);
 
-            tempScores.forEach((s, i) => {
-                const row = document.createElement("div");
-                row.className = `rank-row ${s.isNew ? 'new' : ''}`;
-                if (s.isNew) {
-                    row.innerHTML = `<span>${i+1}. <input type="text" id="new-name" class="rank-name-input" maxlength="8" value="PLAYER"></span> <span>${s.score}</span>`;
-                    saveBtn.onclick = () => saveRanking(i);
-                    saveBtn.style.display = "block";
+            displayList.forEach((s, i) => {
+                const item = document.createElement("div");
+                item.className = `rank-item ${i < 3 ? 'top3' : ''} ${s.isCurrent ? 'current' : ''}`;
+                
+                if (s.isCurrent) {
+                    item.innerHTML = `<span>${i+1}. <input type="text" id="name-input" class="name-input" maxlength="8" value="PLAYER"></span> <span>${s.score}</span>`;
+                    saveBtn.onclick = () => saveScore(i);
+                    saveBtn.disabled = false;
+                    saveBtn.style.opacity = "1";
                 } else {
-                    row.innerHTML = `<span>${i+1}. ${s.name}</span> <span>${s.score}</span>`;
+                    item.innerHTML = `<span>${i+1}. ${s.name}</span> <span>${s.score}</span>`;
                 }
-                rankListItems.appendChild(row);
+                rankDisplayList.appendChild(item);
             });
-            if (!tempScores.find(s => s.isNew)) saveBtn.style.display = "none";
         }
 
-        function saveRanking() {
-            const nameInput = document.getElementById("new-name");
-            const name = nameInput.value.trim().toUpperCase() || "PLAYER";
-            let highScores = JSON.parse(localStorage.getItem("breaker_rankings") || "[]");
-            highScores.push({ name: name, score: totalScore });
-            highScores.sort((a, b) => b.score - a.score);
-            localStorage.setItem("breaker_rankings", JSON.stringify(highScores.slice(0, 5)));
-            rankingLayer.style.display = "none";
-            restartGame();
+        function saveScore() {
+            const input = document.getElementById("name-input");
+            const name = input.value.trim().toUpperCase() || "PLAYER";
+            let scores = JSON.parse(localStorage.getItem("breaker_rankings") || "[]");
+            scores.push({ name: name, score: totalScore });
+            scores.sort((a, b) => b.score - a.score);
+            localStorage.setItem("breaker_rankings", JSON.stringify(scores.slice(0, 5)));
+            
+            saveBtn.disabled = true;
+            saveBtn.style.opacity = "0.5";
+            alert("랭킹이 저장되었습니다! RESTART를 눌러주세요.");
         }
 
         function restartGame() {
             rankingLayer.style.display = "none";
-            level = 1; lives = 3; totalScore = 0; initLevel();
+            level = 1; lives = 3; totalScore = 0;
+            initLevel();
         }
 
         function collisionDetection() {
@@ -187,7 +214,7 @@
                             dy = -dy; b.status--; playBell(r);
                             if (b.status === 0) {
                                 totalScore += rowScores[r]; bricksBroken++;
-                                if ([20, 40, 60].includes(bricksBroken)) { dx *= 1.25; dy *= 1.25; }
+                                if ([20, 40, 60].includes(bricksBroken)) { dx *= 1.2; dy *= 1.2; }
                             }
                             if (bricksBroken === rowCount * columnCount) { level++; initLevel(); }
                         }
@@ -201,26 +228,24 @@
             for (let r = 0; r < rowCount; r++) {
                 for (let c = 0; c < columnCount; c++) {
                     if (bricks[r][c].status > 0) {
-                        let bX = c * (brickWidth + brickPadding);
-                        let bY = r * (brickHeight + brickPadding) + 80;
+                        let bX = c * (brickWidth + brickPadding), bY = r * (brickHeight + brickPadding) + 80;
                         bricks[r][c].x = bX; bricks[r][c].y = bY;
                         ctx.beginPath(); ctx.roundRect(bX, bY, brickWidth, brickHeight, 4);
                         ctx.fillStyle = bricks[r][c].color; ctx.fill();
-                        if (bricks[r][c].status === 2) { ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.stroke(); }
+                        if (bricks[r][c].status === 2) { ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.stroke(); }
                     }
                 }
             }
             ctx.beginPath(); ctx.arc(x, y, ballRadius, 0, Math.PI * 2); ctx.fillStyle = "white"; ctx.fill(); ctx.closePath();
-            ctx.beginPath(); ctx.roundRect(paddleX, paddleY, paddleWidth, paddleHeight, 8); ctx.fillStyle = "#00FF00"; ctx.fill(); ctx.closePath();
+            ctx.beginPath(); ctx.roundRect(paddleX, paddleY, paddleWidth, 18, 8); ctx.fillStyle = "#00FF00"; ctx.fill(); ctx.closePath();
 
             if (gameState === "PLAYING") {
                 if (x + dx > canvas.width - ballRadius || x + dx < ballRadius) dx = -dx;
                 if (y + dy < ballRadius) dy = -dy;
-                if (y + dy > paddleY - ballRadius && y + dy < paddleY + paddleHeight) {
+                if (y + dy > paddleY - ballRadius && y + dy < paddleY + 18) {
                     if (x > paddleX && x < paddleX + paddleWidth) {
                         let cp = (x - (paddleX + paddleWidth / 2)) / (paddleWidth / 2);
-                        let angle = cp * (Math.PI / 3);
-                        let s = Math.sqrt(dx * dx + dy * dy);
+                        let angle = cp * (Math.PI / 3), s = Math.sqrt(dx * dx + dy * dy);
                         dx = s * Math.sin(angle); dy = -s * Math.cos(angle);
                     }
                 }
