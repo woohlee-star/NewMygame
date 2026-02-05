@@ -5,49 +5,51 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
-    <title>Rainbow Breaker - Ranking Edition</title>
+    <title>Rainbow Breaker - Pro Ranking</title>
     <link rel="manifest" href="data:application/manifest+json,{'name':'RainbowBreaker','short_name':'Breaker','start_url':'.','display':'standalone','background_color':'#222222','theme_color':'#222222','orientation':'portrait'}">
     <style>
-        body { margin: 0; background: #222; overflow: hidden; touch-action: none; font-family: sans-serif; }
+        body { margin: 0; background: #222; overflow: hidden; touch-action: none; font-family: 'Arial', sans-serif; }
         canvas { display: block; margin: 0 auto; background: #000; }
-        #ui { position: absolute; top: 20px; left: 20px; color: white; pointer-events: none; z-index: 10; font-weight: bold; line-height: 1.5; }
         
-        /* 랭킹 입력 팝업 스타일 */
-        #ranking-input {
-            display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            background: rgba(0,0,0,0.9); border: 2px solid #00FF00; padding: 20px; border-radius: 15px;
-            text-align: center; color: white; z-index: 100; width: 80%; max-width: 300px;
+        /* 상단 점수 UI */
+        #ui { position: absolute; top: 20px; left: 20px; color: white; pointer-events: none; z-index: 10; font-weight: bold; }
+
+        /* 랭킹 레이어 (팝업) */
+        #ranking-layer {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); z-index: 100; flex-direction: column; align-items: center; justify-content: center;
         }
-        #ranking-input input { 
-            width: 80%; padding: 10px; margin: 15px 0; border-radius: 5px; border: none; 
-            text-align: center; font-size: 18px; text-transform: uppercase;
+        .ranking-container {
+            background: #333; border: 3px solid #00FF00; padding: 25px; border-radius: 20px;
+            width: 85%; max-width: 350px; text-align: center; color: white;
         }
-        #ranking-input button { 
-            padding: 10px 20px; background: #00FF00; border: none; border-radius: 5px; 
-            font-weight: bold; cursor: pointer; 
-        }
+        .rank-row { display: flex; justify-content: space-between; margin: 10px 0; padding: 10px; background: #444; border-radius: 8px; font-size: 18px; }
+        .rank-row.new { background: #555; border: 2px solid #FFFF00; }
+        .rank-name-input { width: 100px; background: #000; color: #FFFF00; border: 1px solid #FFFF00; text-align: center; text-transform: uppercase; font-weight: bold; }
         
-        /* 실시간 랭킹 보드 */
-        #ranking-board { position: absolute; top: 20px; right: 20px; color: #00FF00; font-size: 12px; text-align: right; pointer-events: none; }
+        /* 버튼 디자인 */
+        .btn-group { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
+        .game-btn { padding: 12px 20px; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; }
+        .save-btn { background: #00FF00; color: #000; }
+        .retry-btn { background: #FF4444; color: white; }
     </style>
 </head>
 <body>
     <div id="ui">
-        Level: <span id="level">1</span> | Life: <span id="lives">3</span><br>
-        Score: <span id="score">0</span>
+        LEVEL: <span id="level">1</span> | LIVES: <span id="lives">3</span><br>
+        SCORE: <span id="score">0</span>
     </div>
 
-    <div id="ranking-board">
-        <div>TOP 5 RANKING</div>
-        <div id="rank-list"></div>
-    </div>
-
-    <div id="ranking-input">
-        <h3>NEW HIGH SCORE!</h3>
-        <p>Enter Name (Max 8 Alphabet)</p>
-        <input type="text" id="player-name" maxlength="8" placeholder="PLAYER">
-        <br>
-        <button onclick="saveRanking()">SAVE & RESTART</button>
+    <div id="ranking-layer">
+        <div class="ranking-container">
+            <h2 id="rank-title" style="color:#00FF00; margin-top:0;">TOP 5 RANKING</h2>
+            <div id="rank-list-items">
+                </div>
+            <div class="btn-group">
+                <button id="save-btn" class="game-btn save-btn">SAVE RANKING</button>
+                <button onclick="restartGame()" class="game-btn retry-btn">PLAY AGAIN</button>
+            </div>
+        </div>
     </div>
 
     <canvas id="gameCanvas"></canvas>
@@ -58,46 +60,32 @@
         const levelDisplay = document.getElementById("level");
         const livesDisplay = document.getElementById("lives");
         const scoreDisplay = document.getElementById("score");
-        const rankListDisplay = document.getElementById("rank-list");
-        const rankingInputDiv = document.getElementById("ranking-input");
-        const playerNameInput = document.getElementById("player-name");
+        const rankingLayer = document.getElementById("ranking-layer");
+        const rankListItems = document.getElementById("rank-list-items");
+        const saveBtn = document.getElementById("save-btn");
 
-        let level = 1;
-        let lives = 3;
-        let totalScore = 0;
-        let bricksBroken = 0;
-        let gameState = "READY"; // READY, PLAYING, RANKING
+        let level = 1; let lives = 3; let totalScore = 0; let bricksBroken = 0;
+        let gameState = "READY"; 
 
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
 
-        const rowCount = 7;
-        const columnCount = 10;
-        const brickPadding = 2;
-        const brickWidth = (canvas.width / columnCount) - brickPadding;
+        const rowCount = 7; const columnCount = 10;
+        const brickPadding = 2; const brickWidth = (canvas.width / columnCount) - brickPadding;
         const brickHeight = 25;
         const rainbowColors = ["#FF0000", "#FF7F00", "#FFFF00", "#00FF00", "#0000FF", "#4B0082", "#9400D3"];
-        // 레이어별 점수 (인덱스 0이 가장 위쪽 빨강색이므로 역순 70점~10점)
         const rowScores = [70, 60, 50, 40, 30, 20, 10];
         const scaleFrequencies = [987.77, 880.00, 783.99, 698.46, 659.25, 587.33, 523.25];
 
         const paddleOffsetBottom = brickHeight * 3 + 60; 
-        let paddleWidth;
-        const paddleHeight = 18;
-        let paddleX;
-        let paddleY = canvas.height - paddleOffsetBottom;
-
-        let ballRadius = 9;
-        let x, y, dx, dy, currentSpeed;
-        let bricks = [];
+        let paddleWidth; const paddleHeight = 18; let paddleX; let paddleY = canvas.height - paddleOffsetBottom;
+        let ballRadius = 9; let x, y, dx, dy, currentSpeed; let bricks = [];
 
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         function playBell(row) {
             if (audioCtx.state === 'suspended') audioCtx.resume();
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = 'triangle';
-            osc.frequency.setValueAtTime(scaleFrequencies[row], audioCtx.currentTime);
+            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+            osc.type = 'triangle'; osc.frequency.setValueAtTime(scaleFrequencies[row], audioCtx.currentTime);
             gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
             osc.connect(gain); gain.connect(audioCtx.destination);
@@ -105,89 +93,89 @@
         }
 
         function initLevel() {
-            let initialPaddleWidth = brickWidth * 2;
-            let calculatedWidth = initialPaddleWidth * Math.pow(0.8, level - 1);
-            paddleWidth = Math.max(calculatedWidth, brickWidth * 0.1);
+            paddleWidth = (brickWidth * 2) * Math.pow(0.8, level - 1);
+            paddleWidth = Math.max(paddleWidth, brickWidth * 0.1);
             paddleX = (canvas.width - paddleWidth) / 2;
-            bricksBroken = 0;
-            currentSpeed = (3 + level) * 0.6;
-            
+            bricksBroken = 0; currentSpeed = (3 + level) * 0.6;
             bricks = [];
             for (let r = 0; r < rowCount; r++) {
                 bricks[r] = [];
                 for (let c = 0; c < columnCount; c++) {
-                    let strength = (level >= 6 && r === 0) ? 2 : 1;
-                    bricks[r][c] = { x: 0, y: 0, status: strength, color: rainbowColors[r] };
+                    bricks[r][c] = { x: 0, y: 0, status: (level >= 6 && r === 0) ? 2 : 1, color: rainbowColors[r] };
                 }
             }
-            resetBall();
-            updateUI();
-            updateRankingBoard();
+            resetBall(); updateUI();
         }
 
         function resetBall() {
-            x = paddleX + paddleWidth / 2;
-            y = paddleY - ballRadius - 5;
-            dx = currentSpeed * (Math.random() > 0.5 ? 1 : -1);
-            dy = -currentSpeed;
+            x = paddleX + paddleWidth / 2; y = paddleY - ballRadius - 5;
+            dx = currentSpeed * (Math.random() > 0.5 ? 1 : -1); dy = -currentSpeed;
             gameState = "READY";
         }
 
         function handleMove(inputX) {
             if (gameState === "RANKING") return;
             paddleX = inputX - paddleWidth / 2;
-            if(paddleX < 0) paddleX = 0;
-            if(paddleX + paddleWidth > canvas.width) paddleX = canvas.width - paddleWidth;
+            if(paddleX < 0) paddleX = 0; if(paddleX + paddleWidth > canvas.width) paddleX = canvas.width - paddleWidth;
             if (gameState === "READY") x = paddleX + paddleWidth / 2;
         }
 
         canvas.addEventListener("touchmove", (e) => { e.preventDefault(); handleMove(e.touches[0].clientX); }, {passive: false});
         canvas.addEventListener("mousemove", (e) => { handleMove(e.clientX); });
-        const startAction = () => { 
-            if (gameState === "READY") {
-                if (audioCtx.state === 'suspended') audioCtx.resume();
-                gameState = "PLAYING";
-            }
-        };
-        canvas.addEventListener("touchstart", startAction);
-        canvas.addEventListener("mousedown", startAction);
+        canvas.addEventListener("mousedown", () => { if (gameState === "READY") gameState = "PLAYING"; });
+        canvas.addEventListener("touchstart", () => { if (gameState === "READY") gameState = "PLAYING"; });
 
         function checkRanking() {
-            const highScores = JSON.parse(localStorage.getItem("breaker_rankings") || "[]");
-            const isTop5 = highScores.length < 5 || totalScore > highScores[highScores.length - 1].score;
-            
+            let highScores = JSON.parse(localStorage.getItem("breaker_rankings") || "[]");
+            const newRankIndex = highScores.findIndex(s => totalScore > s.score);
+            const isTop5 = highScores.length < 5 || newRankIndex !== -1;
+
             if (isTop5) {
                 gameState = "RANKING";
-                rankingInputDiv.style.display = "block";
-                playerNameInput.focus();
+                showRankingInput(highScores);
             } else {
                 restartGame();
             }
         }
 
-        function saveRanking() {
-            let name = playerNameInput.value.trim().toUpperCase() || "PLAYER";
-            if (name.length > 8) name = name.substring(0, 8);
+        function showRankingInput(scores) {
+            rankingLayer.style.display = "flex";
+            rankListItems.innerHTML = "";
             
+            // 임시로 내 점수를 포함한 새로운 리스트 생성
+            let tempScores = [...scores, { name: "ENTER...", score: totalScore, isNew: true }];
+            tempScores.sort((a, b) => b.score - a.score);
+            tempScores = tempScores.slice(0, 5);
+
+            tempScores.forEach((s, i) => {
+                const row = document.createElement("div");
+                row.className = `rank-row ${s.isNew ? 'new' : ''}`;
+                if (s.isNew) {
+                    row.innerHTML = `<span>${i+1}. <input type="text" id="new-name" class="rank-name-input" maxlength="8" value="PLAYER"></span> <span>${s.score}</span>`;
+                    saveBtn.onclick = () => saveRanking(i);
+                    saveBtn.style.display = "block";
+                } else {
+                    row.innerHTML = `<span>${i+1}. ${s.name}</span> <span>${s.score}</span>`;
+                }
+                rankListItems.appendChild(row);
+            });
+            if (!tempScores.find(s => s.isNew)) saveBtn.style.display = "none";
+        }
+
+        function saveRanking() {
+            const nameInput = document.getElementById("new-name");
+            const name = nameInput.value.trim().toUpperCase() || "PLAYER";
             let highScores = JSON.parse(localStorage.getItem("breaker_rankings") || "[]");
             highScores.push({ name: name, score: totalScore });
             highScores.sort((a, b) => b.score - a.score);
-            highScores = highScores.slice(0, 5);
-            
-            localStorage.setItem("breaker_rankings", JSON.stringify(highScores));
-            rankingInputDiv.style.display = "none";
-            playerNameInput.value = "";
+            localStorage.setItem("breaker_rankings", JSON.stringify(highScores.slice(0, 5)));
+            rankingLayer.style.display = "none";
             restartGame();
         }
 
-        function updateRankingBoard() {
-            const highScores = JSON.parse(localStorage.getItem("breaker_rankings") || "[]");
-            rankListDisplay.innerHTML = highScores.map((s, i) => `${i+1}. ${s.name}: ${s.score}`).join("<br>");
-        }
-
         function restartGame() {
-            level = 1; lives = 3; totalScore = 0;
-            initLevel();
+            rankingLayer.style.display = "none";
+            level = 1; lives = 3; totalScore = 0; initLevel();
         }
 
         function collisionDetection() {
@@ -196,18 +184,12 @@
                     let b = bricks[r][c];
                     if (b.status > 0) {
                         if (x > b.x && x < b.x + brickWidth && y > b.y && y < b.y + brickHeight) {
-                            dy = -dy;
-                            b.status--;
-                            playBell(r);
+                            dy = -dy; b.status--; playBell(r);
                             if (b.status === 0) {
-                                totalScore += rowScores[r]; // 층별 점수 합산
-                                bricksBroken++;
+                                totalScore += rowScores[r]; bricksBroken++;
                                 if ([20, 40, 60].includes(bricksBroken)) { dx *= 1.25; dy *= 1.25; }
                             }
-                            if (bricksBroken === rowCount * columnCount) {
-                                level++;
-                                initLevel();
-                            }
+                            if (bricksBroken === rowCount * columnCount) { level++; initLevel(); }
                         }
                     }
                 }
@@ -216,34 +198,20 @@
 
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
             for (let r = 0; r < rowCount; r++) {
                 for (let c = 0; c < columnCount; c++) {
                     if (bricks[r][c].status > 0) {
                         let bX = c * (brickWidth + brickPadding);
                         let bY = r * (brickHeight + brickPadding) + 80;
                         bricks[r][c].x = bX; bricks[r][c].y = bY;
-                        ctx.beginPath();
-                        ctx.roundRect(bX, bY, brickWidth, brickHeight, 4);
-                        ctx.fillStyle = bricks[r][c].color;
-                        ctx.fill();
+                        ctx.beginPath(); ctx.roundRect(bX, bY, brickWidth, brickHeight, 4);
+                        ctx.fillStyle = bricks[r][c].color; ctx.fill();
                         if (bricks[r][c].status === 2) { ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.stroke(); }
-                        ctx.closePath();
                     }
                 }
             }
-
-            ctx.beginPath();
-            ctx.arc(x, y, ballRadius, 0, Math.PI * 2);
-            ctx.fillStyle = "white";
-            ctx.fill();
-            ctx.closePath();
-
-            ctx.beginPath();
-            ctx.roundRect(paddleX, paddleY, paddleWidth, paddleHeight, 8);
-            ctx.fillStyle = "#00FF00";
-            ctx.fill();
-            ctx.closePath();
+            ctx.beginPath(); ctx.arc(x, y, ballRadius, 0, Math.PI * 2); ctx.fillStyle = "white"; ctx.fill(); ctx.closePath();
+            ctx.beginPath(); ctx.roundRect(paddleX, paddleY, paddleWidth, paddleHeight, 8); ctx.fillStyle = "#00FF00"; ctx.fill(); ctx.closePath();
 
             if (gameState === "PLAYING") {
                 if (x + dx > canvas.width - ballRadius || x + dx < ballRadius) dx = -dx;
@@ -258,25 +226,19 @@
                 }
                 if (y + dy > canvas.height) {
                     lives--;
-                    if (lives <= 0) {
-                        checkRanking(); // 게임 오버 시 랭킹 확인
-                    } else { resetBall(); }
+                    if (lives <= 0) checkRanking();
+                    else resetBall();
                 }
-                x += dx; y += dy;
-                collisionDetection();
+                x += dx; y += dy; collisionDetection();
             }
-            updateUI();
-            requestAnimationFrame(draw);
+            updateUI(); requestAnimationFrame(draw);
         }
 
         function updateUI() {
-            levelDisplay.innerText = level;
-            livesDisplay.innerText = lives;
-            scoreDisplay.innerText = totalScore;
+            levelDisplay.innerText = level; livesDisplay.innerText = lives; scoreDisplay.innerText = totalScore;
         }
 
-        initLevel();
-        draw();
+        initLevel(); draw();
     </script>
 </body>
 </html>
